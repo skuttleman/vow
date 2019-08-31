@@ -67,24 +67,12 @@
                               result))))
     next-ch))
 
-(defn ^:private finally* [ch cb]
-  (let [next-ch (async/promise-chan)]
-    (async/go
-      (async/put! next-ch (let [initial (async/<! (->ch ch))
-                                {:keys [status] :as result} (async/<! (handle! cb))]
-                            (if (= status ::error)
-                              result
-                              initial))))
-    next-ch))
-
 (defrecord ^:private ChanPromise [ch]
   proto/IPromise
   (then [_ on-success on-error]
     (->ChanPromise (then* ch on-success on-error)))
   (catch [_ cb]
     (->ChanPromise (catch* ch cb)))
-  (finally [_ cb]
-    (->ChanPromise (finally* ch cb)))
 
   #?@(:clj [IDeref
             (deref [_]

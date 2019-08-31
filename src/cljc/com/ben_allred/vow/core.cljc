@@ -75,10 +75,3 @@
    (proto/then promise
                (comp resolve (partial try* on-success))
                (comp reject (partial try* on-error)))))
-
-(defn finally
-  "Handles clean up of a promise. `cb` should accept no args and should only be used for side-effects.
-  If `cb` throws an exception or returns a rejected promise, it returns a rejected promise. Otherwise
-  it returns a promise that resolves or rejects the original result."
-  [promise cb]
-  (proto/finally promise cb))
