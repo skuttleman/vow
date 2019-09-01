@@ -8,9 +8,10 @@
      (:import
        (clojure.lang IBlockingDeref IDeref IRecord))))
 
-(prefer-method print-method IDeref IRecord)
+#?(:clj
+   (prefer-method print-method IDeref IRecord))
 
-(defrecord PromiseResult [status value]
+(defrecord ^:private PromiseResult [status value]
   proto/IPromiseResult
   (result [_]
     [(keyword (name status)) value]))
@@ -30,19 +31,22 @@
     val
     (->PromiseResult ::error val)))
 
+(defn ^:private promise? [x]
+  (satisfies? proto/IPromise x))
+
 (defn ^:private ->ch
   ([x]
    (->ch (async/promise-chan) x))
   ([ch x]
    (async/go-loop [val x]
-                  (cond
-                    (satisfies? async.protocols/ReadPort val) (recur (async/<! val))
-                    (satisfies? proto/IPromise val) (let [ch' (async/chan)]
-                                                      (proto/then val
-                                                                  (comp (partial async/put! ch') resolve*)
-                                                                  (comp (partial async/put! ch') reject*))
-                                                      (recur (async/<! ch')))
-                    :else (async/put! ch (resolve* val))))
+     (cond
+       (satisfies? async.protocols/ReadPort val) (recur (async/<! val))
+       (promise? val) (let [ch' (async/chan)]
+                        (proto/then val
+                                    (comp (partial async/put! ch') resolve*)
+                                    (comp (partial async/put! ch') reject*))
+                        (recur (async/<! ch')))
+       :else (async/put! ch (resolve* val))))
    ch))
 
 (defn ^:private handle! [cb]
@@ -88,12 +92,12 @@
                   default)))]))
 
 (defn resolve [val]
-  (if (satisfies? proto/IPromise val)
+  (if (promise? val)
     val
     (->ChanPromise (->ch (resolve* val)))))
 
 (defn reject [val]
-  (if (satisfies? proto/IPromise val)
+  (if (promise? val)
     val
     (->ChanPromise (->ch (reject* val)))))
 

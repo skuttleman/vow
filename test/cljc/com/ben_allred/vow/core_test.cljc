@@ -207,3 +207,27 @@
                                 (v/peek #(throw (ex-info "bad" {:x %})))
                                 (v/then inc)
                                 (deref))))))))
+
+(deftest all-test
+  (testing "(all)"
+    (testing "collects success values"
+      (is (= [:success [:a :b :c]]
+             (-> [(v/resolve :a)
+                  (v/ch->prom (async/go :b))
+                  (v/create (fn [resolve _] (resolve :c)))]
+                 (v/all)
+                 (deref)))))
+
+    (testing "works on maps"
+      (is (= [:success {:a 1 :b 2 :c 3}]
+             (-> {:a (v/resolve 1)
+                  :b (v/ch->prom (async/go 2))
+                  :c (v/create (fn [resolve _] (resolve 3)))}
+                 (v/all)
+                 (deref)))))
+
+    (testing "rejects with a single error"
+      (is (= [:error :boom!]
+             (-> [(v/resolve 1) (v/reject :boom!) (v/resolve 3)]
+                 (v/all)
+                 (deref)))))))

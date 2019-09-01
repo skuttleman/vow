@@ -14,15 +14,25 @@
        (catch #?(:clj Throwable :cljs :default) _))
   val)
 
+(def ^:private wrap-success
+  (partial conj [:success]))
+
+(def ^:private wrap-error
+  (partial conj [:error]))
+
 (defn resolve
   "Creates a promise that resolves with `val`."
-  [val]
-  (impl.chan/resolve val))
+  ([]
+   (resolve nil))
+  ([val]
+   (impl.chan/resolve val)))
 
 (defn reject
   "Creates a promise that rejects with `err`."
-  [err]
-  (impl.chan/reject err))
+  ([]
+   (reject nil))
+  ([err]
+   (impl.chan/reject err)))
 
 (defn ch->prom
   "Given a core.async channel and an optional success? predicate, creates a promise with the first value pulled off
@@ -69,9 +79,30 @@
   (peek promise nil println)"
   ([promise cb]
    (peek promise
-         (comp cb (partial conj [:success]))
-         (comp cb (partial conj [:error]))))
+         (comp cb wrap-success)
+         (comp cb wrap-error)))
   ([promise on-success on-error]
    (proto/then promise
                (comp resolve (partial try* on-success))
                (comp reject (partial try* on-error)))))
+
+(defn all
+  "Takes a sequence of promises and returns a promise that resolves when all promises resolve, or rejects if any
+  promise rejects. `promises` can be a map or sequential collection
+
+  (-> {:foo (resolve :bar) :baz (resolve :quux)}
+      (all)
+      (then println)) ;; {:foo :bar :baz :quux}"
+  [promises]
+  (let [m? (map? promises)]
+    (reduce (fn [result-promise [k promise]]
+              (then result-promise (fn [results]
+                                     (then promise (partial assoc results k)))))
+            (resolve (if m? {} []))
+            (cond->> promises
+              (not m?) (map-indexed vector)))))
+
+(defn promise?
+  "Returns `true` if `x` satisfies `IPromise`."
+  [x]
+  (satisfies? proto/IPromise x))
