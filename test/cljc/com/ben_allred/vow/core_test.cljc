@@ -231,3 +231,17 @@
              (-> [(v/resolve 1) (v/reject :boom!) (v/resolve 3)]
                  (v/all)
                  (deref)))))))
+
+(deftest then->test
+  (testing "(then->)"
+    (testing "threads the success path"
+      (is (= [:error 15]
+             (-> (v/resolve 3)
+                 (v/then-> inc (inc) (* 3) v/reject inc)
+                 (deref)))))
+
+    (testing "has no effect on failed promises"
+      (is (= [:error 3]
+             (-> (v/reject 3)
+                 (v/then-> inc (inc) (* 3) v/reject inc)
+                 (deref)))))))

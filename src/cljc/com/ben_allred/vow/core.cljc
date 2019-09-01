@@ -106,3 +106,16 @@
   "Returns `true` if `x` satisfies `IPromise`."
   [x]
   (satisfies? proto/IPromise x))
+
+(defmacro then->
+  "A macro for handing the success path thread via `->`.
+
+  (-> (resolve 3)
+      (then-> inc (* 2) (as-> $ (repeat $ $)) (->> (map dec)))
+      (peek println nil)) ;; (7 7 7 7 7 7 7 7)"
+  [promise & forms]
+  (let [forms' (map (fn [form]
+                      (let [[f & args] (if (list? form) form [form])]
+                        `(then (fn [val#] (~f val# ~@args)))))
+                    forms)]
+    `(-> ~promise ~@forms')))

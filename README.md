@@ -12,6 +12,7 @@ Here is an example of what can be done with `vow`.
 
 (-> (v/resolve 3) ;; creates a promise that resolves to the value `3`
     (v/then inc) ;; increments the resolved value
+    (v/then-> (* 2) (+ 7) (->> (/ 60))) ;; a threading macro for the success path
     (v/catch dec) ;; has no effect because the promise is resolved
     (v/then v/reject v/resolve) ;; flips the success/error status of the promise - just go with it
     (v/then dec) ;; has no effect because the promise is rejected
@@ -170,6 +171,23 @@ If any promise fails, the promise will reject with the error.
     (v/catch println)) ;; :bar
 ```
 
+#### `then->`
+
+A macro for threading happy path actions via `->`.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> (v/resolve 3)
+    (v/then-> (* 2) v/reject)
+    (v/catch dec)
+    (v/then-> (* 3) println)) ;; 15
+
+(-> (v/reject 3)
+    (v/then-> (* 2) v/reject)
+    (v/catch dec)
+    (v/then-> (* 3) println)) ;; 6
+```
 #### `deref`
 
 In `Clojure`, promises are `deref`able. Sorry `ClojureScript`ers. The status (`:success` or `:error`) is returned along
