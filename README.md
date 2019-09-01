@@ -137,9 +137,42 @@ no effect on the value in the promise chain.
     (v/peek nil on-error)) ;; only handle error
 ```
 
+#### `all`
+
+Takes a collection of promises and returns a promise that resolves to a vector of success values (or map if passed a map).
+The resulting value retains the order or promises passed in (or associated keys if passed a map).
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> [(v/ch->prom (async/go
+                   (async/<! (async/timeout 1000))
+                   :foo))
+     (v/resolve :bar)]
+     (v/all)
+     (v/then println)) ;; [:foo :bar]
+
+(-> {:foo (v/ch->prom (async/go
+                        (async/<! (async/timeout 1000))
+                        :bar))
+     :baz (v/resolve :quux)}
+     (v/all)
+     (v/then println)) ;; {:foo :bar :baz :quux}
+```
+
+If any promise fails, the promise will reject with the error.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> [(v/resolve :foo) (v/reject :bar) (v/resolve :baz)]
+    (v/all)
+    (v/catch println)) ;; :bar
+```
+
 #### `deref`
 
-In `Clojure`, promises are `deref`able. Sorry `Clojurescript`ers. The status (`:success` or `:error`) is returned along
+In `Clojure`, promises are `deref`able. Sorry `ClojureScript`ers. The status (`:success` or `:error`) is returned along
 with the value in a tuple-ish vector.
 
 ```clojure
