@@ -8,15 +8,16 @@ channels. Usage will be familiar to anyone used to javascript [Promises](https:/
 Here is an example of what can be done with `vow`.
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(-> (vow/resolve 3) ;; creates a promise that resolves to the value `3`
-    (vow/then inc) ;; increments the resolved value
-    (vow/catch dec) ;; has no effect because the promise is not rejected
-    (vow/then vow/reject vow/resolve) ;; flips the success/error status of the promise - just go with it
-    (vow/catch inc) ;;increments the now rejected value
-    (vow/peek println) ;; prints the value without effecting what is in the promise chain
-    (vow/then (comp do-something inc))) ;; calls do-something with `6`
+(-> (v/resolve 3) ;; creates a promise that resolves to the value `3`
+    (v/then inc) ;; increments the resolved value
+    (v/catch dec) ;; has no effect because the promise is resolved
+    (v/then v/reject v/resolve) ;; flips the success/error status of the promise - just go with it
+    (v/then dec) ;; has no effect because the promise is rejected
+    (v/catch inc) ;; increments the now rejected value
+    (v/peek println) ;; prints the value without effecting what is in the promise chain
+    (v/then (comp do-something inc))) ;; calls do-something with `6`
 ;; [:success 5]
 ;; => Promise{...}
 ```
@@ -30,9 +31,9 @@ There are four promise constructors.
 Create a promise that resolves a value.
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(vow/resolve :foo)
+(v/resolve :foo)
 ```
 
 #### `reject`
@@ -40,9 +41,9 @@ Create a promise that resolves a value.
 Creates a promise that rejects a value.     
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(vow/reject :foo)
+(v/reject :foo)
 ```
 
 #### `ch->prom`
@@ -50,17 +51,17 @@ Creates a promise that rejects a value.
 Creates a promise by pulling the first available value off a `core.async` channel.
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(vow/reject (async/go (async/<! (async/timeout 1000)) :foo))
+(v/reject (async/go (async/<! (async/timeout 1000)) :foo))
 ```
 
 Takes an optional predicate for determining if the value is a success or a failure. Defaults to success.
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(vow/ch->prom (async/go :foo) keyword?)
+(v/ch->prom (async/go :foo) keyword?)
 ```
 
 #### `create`
@@ -69,22 +70,22 @@ Create is a lower level function that allows you create a promise that resolves 
 logic you can put in a function. Go nuts.
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(vow/create (fn [resolve reject]
-              (try (resolve (do-something-sketchy!))
-                 (catch SketchyException ex
-                   (reject ex)))))
+(v/create (fn [resolve reject]
+            (try (resolve (do-something-sketchy!))
+               (catch SketchyException ex
+                 (reject ex)))))
 ```
 
 If the callback throws an exception before resolving or rejecting, the promise is automatically rejected
 with the exception. The above can be written as:
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(vow/create (fn [resolve _]
-              (resolve (do-something-sketchy!))))
+(v/create (fn [resolve _]
+            (resolve (do-something-sketchy!))))
 ```
 
 ### Using a Promise
@@ -99,11 +100,11 @@ If the handler throws an exception it will become a rejected promise. Otherwise 
 promise.
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(-> (vow/resolve 3)
-    (vow/then on-success) ;; only handles success
-    (vow/then on-success on-error)) ;; handles success and error
+(-> (v/resolve 3)
+    (v/then on-success) ;; only handles success
+    (v/then on-success on-error)) ;; handles success and error
 ```
 
 #### `catch`
@@ -112,10 +113,10 @@ Handles the failure path of the promise. If the handler returns a promise, it wi
 an exception it will become a rejected promise. Otherwise the return value is treated as a resolved promise.
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(-> (vow/reject 3)
-    (vow/catch on-error))
+(-> (v/reject 3)
+    (v/catch on-error))
 ```
 
 #### `peek`
@@ -125,15 +126,15 @@ clean up actions or debugging. It does not matter what the handler returns, or e
 no effect on the value in the promise chain.
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-(-> (vow/resolve 3)
-    (vow/peek handler)  ;; called with [:success 3]
-    (vow/then vow/reject)
-    (vow/peek handler)  ;; called with [:error 3]
-    (vow/peek on-success on-error) ;; separate handlers for success/error (value is not wrapped in a tuple)
-    (vow/peek on-success nil) ;; only handle success
-    (vow/peek nil on-error)) ;; only handle error
+(-> (v/resolve 3)
+    (v/peek handler)  ;; called with [:success 3]
+    (v/then v/reject)
+    (v/peek handler)  ;; called with [:error 3]
+    (v/peek on-success on-error) ;; separate handlers for success/error (value is not wrapped in a tuple)
+    (v/peek on-success nil) ;; only handle success
+    (v/peek nil on-error)) ;; only handle error
 ```
 
 #### `deref`
@@ -142,18 +143,18 @@ In `Clojure`, promises are `deref`able. Sorry `Clojurescript`ers. The status (`:
 with the value in a tuple-ish vector.
 
 ```clojure
-(require '[com.ben-allred.vow.core :as vow])
+(require '[com.ben-allred.vow.core :as v])
 
-@(vow/resolve :foo)
+@(v/resolve :foo)
 ;; => [:success :foo]
 
-@(vow/reject :bar)
+@(v/reject :bar)
 ;; => [:error :bar]
 
-(-> (vow/resolve 3)
-    (vow/then inc)
-    (vow/peek println)
-    (vow/then dec)
+(-> (v/resolve 3)
+    (v/then inc)
+    (v/peek println)
+    (v/then dec)
     deref)
 ;; [:success 4]
 ;; => [:success 3]
