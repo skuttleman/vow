@@ -52,31 +52,17 @@
 (defn ^:private handle! [cb]
   (->ch (try* cb)))
 
-(defn ^:private then* [ch on-success on-error]
-  (let [next-ch (async/promise-chan)]
-    (async/go
-      (async/put! next-ch (let [{:keys [status value]} (async/<! (->ch ch))]
-                            (-> (if (= status ::success) on-success on-error)
-                                (partial value)
-                                (handle!)
-                                (async/<!)))))
-    next-ch))
-
-(defn ^:private catch* [ch cb]
-  (let [next-ch (async/promise-chan)]
-    (async/go
-      (async/put! next-ch (let [{:keys [status value] :as result} (async/<! (->ch ch))]
-                            (if (= status ::error)
-                              (async/<! (handle! (partial cb value)))
-                              result))))
-    next-ch))
-
 (defrecord ^:private ChanPromise [ch]
   proto/IPromise
   (then [_ on-success on-error]
-    (->ChanPromise (then* ch on-success on-error)))
-  (catch [_ cb]
-    (->ChanPromise (catch* ch cb)))
+    (let [next-ch (async/promise-chan)]
+      (async/go
+        (async/put! next-ch (let [{:keys [status value]} (async/<! (->ch ch))]
+                              (-> (if (= status ::success) on-success on-error)
+                                  (partial value)
+                                  (handle!)
+                                  (async/<!)))))
+      (->ChanPromise next-ch)))
 
   #?@(:clj [IDeref
             (deref [_]

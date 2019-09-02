@@ -69,7 +69,7 @@
   "Handles the failure path of a promise. If the handler fn returns an IPromise, it will be hoisted.
   If the handler fn throws, it will produce a rejected promise."
   [promise cb]
-  (proto/catch promise cb))
+  (proto/then promise identity cb))
 
 (defn peek
   "Access the success and/or failure path of a promise chain at a specific point in processing. Can be used
