@@ -11,6 +11,9 @@
 #?(:clj
    (prefer-method print-method IDeref IRecord))
 
+#?(:cljs
+   (declare ->ChanPromise))
+
 (defrecord ^:private PromiseResult [status value]
   proto/IPromiseResult
   (result [_]
@@ -52,7 +55,7 @@
 (defn ^:private handle! [cb]
   (->ch (try* cb)))
 
-(defrecord ^:private ChanPromise [ch]
+(defrecord ChanPromise [ch]
   proto/IPromise
   (then [_ on-success on-error]
     (let [next-ch (async/promise-chan)]
@@ -77,30 +80,18 @@
                   (proto/result val)
                   default)))]))
 
-(defn resolve [val]
-  (if (promise? val)
-    val
-    (->ChanPromise (->ch (resolve* val)))))
-
-(defn reject [val]
-  (if (promise? val)
-    val
-    (->ChanPromise (->ch (reject* val)))))
+(defn ^:private on* [cb]
+  (fn [val]
+    (if (promise? val)
+      val
+      (->ChanPromise (->ch (cb val))))))
 
 (defn create [cb]
   (let [ch (async/promise-chan)
         on (partial ->ch ch)
-        on-success (comp on resolve)
-        on-error (comp on reject)]
+        on-success (comp on (on* resolve*))
+        on-error (comp on (on* reject*))]
     (try (cb on-success on-error)
          (catch #?(:clj Throwable :default :default) ex
            (on-error ex)))
     (->ChanPromise ch)))
-
-(defn ch->prom [ch success?]
-  (create (fn [resolve reject]
-            (async/go
-              (let [val (async/<! ch)]
-                (if (success? val)
-                  (resolve val)
-                  (reject val)))))))

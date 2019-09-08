@@ -2,6 +2,7 @@
   "A library to wrap core.async channels with chainable left/right (or success/failure) handling."
   (:refer-clojure :exclude [next peek resolve])
   (:require
+    [clojure.core.async :as async]
     [com.ben-allred.vow.impl.chan :as impl.chan]
     [com.ben-allred.vow.impl.protocol :as proto])
   #?(:clj
@@ -25,14 +26,14 @@
   ([]
    (resolve nil))
   ([val]
-   (impl.chan/resolve val)))
+   (impl.chan/create (fn [resolve _] (resolve val)))))
 
 (defn reject
   "Creates a promise that rejects with `err`."
   ([]
    (reject nil))
   ([err]
-   (impl.chan/reject err)))
+   (impl.chan/create (fn [_ reject] (reject err)))))
 
 (defn ch->prom
   "Given a core.async channel and an optional success? predicate, creates a promise with the first value pulled off
@@ -41,7 +42,30 @@
   ([ch]
    (ch->prom ch (constantly true)))
   ([ch success?]
-   (impl.chan/ch->prom ch success?)))
+   (impl.chan/create (fn [resolve reject]
+                       (async/go
+                         (let [val (async/<! ch)]
+                           (if (success? val)
+                             (resolve val)
+                             (reject val))))))))
+
+(defn native->prom
+  "Given a \"native\" promise (js/Promise in cljs and anything that implements IDeref in clj), creates a promise
+  that resolves or rejects. In cljs it follows js/Promise semantics for resolving and rejecting. In clj you can pass
+  an optional `success?` predicate that determines whether to resolve or reject the value which always resolves by
+  default."
+  ([prom]
+   #?(:clj  (native->prom prom (constantly true))
+      :cljs (impl.chan/create (fn [resolve reject]
+                                (.then prom resolve reject)))))
+  #?(:clj
+     ([prom success?]
+      (impl.chan/create (fn [resolve reject]
+                          (async/go
+                            (let [val @prom]
+                              (if (success? val)
+                                (resolve val)
+                                (reject val)))))))))
 
 (defn create
   "Creates a promise that resolves or rejects at the discretion of cb.
@@ -69,7 +93,7 @@
   "Handles the failure path of a promise. If the handler fn returns an IPromise, it will be hoisted.
   If the handler fn throws, it will produce a rejected promise."
   [promise cb]
-  (proto/then promise identity cb))
+  (proto/then promise resolve cb))
 
 (defn peek
   "Access the success and/or failure path of a promise chain at a specific point in processing. Can be used
@@ -116,6 +140,8 @@
   [promise & forms]
   (let [forms' (map (fn [form]
                       (let [[f & args] (if (list? form) form [form])]
-                        `(then (fn [val#] (~f val# ~@args)))))
+                        (if (seq args)
+                          `(then (fn [val#] (~f val# ~@args)))
+                          `(then ~f))))
                     forms)]
     `(-> ~promise ~@forms')))
