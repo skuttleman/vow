@@ -3,6 +3,8 @@
 A Clojure library that builds a promise abstraction on top of [`clojure.core.async`](https://github.com/clojure/core.async)
 channels. Usage will be familiar to anyone used to javascript [Promises](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Using_promises).
 
+[![Clojars Project](https://img.shields.io/clojars/v/com.ben-allred/vow.svg)](https://clojars.org/com.ben-allred/vow)
+
 ## Usage
 
 Here is an example of what can be done with `vow`.
