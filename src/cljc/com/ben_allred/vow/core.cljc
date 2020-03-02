@@ -140,8 +140,6 @@
   [promise & forms]
   (let [forms' (map (fn [form]
                       (let [[f & args] (if (list? form) form [form])]
-                        (if (seq args)
-                          `(then (fn [val#] (~f val# ~@args)))
-                          `(then ~f))))
+                        `(then (fn [val#] (~f val# ~@args)))))
                     forms)]
     `(-> ~promise ~@forms')))
