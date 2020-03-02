@@ -43,12 +43,15 @@
   ([ch x]
    (async/go-loop [val x]
      (cond
-       (satisfies? async.protocols/ReadPort val) (recur (async/<! val))
-       (promise? val) (let [ch' (async/chan)]
-                        (proto/then val
-                                    (comp (partial async/put! ch') resolve*)
-                                    (comp (partial async/put! ch') reject*))
-                        (recur (async/<! ch')))
+       (and (not (promise? val)) (satisfies? async.protocols/ReadPort val))
+       (recur (async/<! val))
+
+       (promise? val)
+       (let [ch' (async/chan)]
+         (proto/then val
+                     (comp (partial async/put! ch') resolve*)
+                     (comp (partial async/put! ch') reject*))
+         (recur (async/<! ch')))
        :else (async/put! ch (resolve* val))))
    ch))
 
@@ -66,6 +69,12 @@
                                   (handle!)
                                   (async/<!)))))
       (->ChanPromise next-ch)))
+
+  async.protocols/ReadPort
+  (take! [_ fn1-handler]
+    (async.protocols/take! (async/go
+                             (proto/result (async/<! ch)))
+                           fn1-handler))
 
   #?@(:clj [IDeref
             (deref [_]

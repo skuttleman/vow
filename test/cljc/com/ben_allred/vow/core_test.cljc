@@ -9,7 +9,12 @@
     (let [prom (v/resolve 3)]
       (testing "produces a promise that always resolves to the specified value"
         (is (= [:success 3] @prom))
-        (is (= [:success 3] @prom))))))
+        (is (= [:success 3] @prom))))
+
+    (let [prom (v/resolve ::value)]
+      (testing "can be read as a channel"
+        (is (= [[:success ::value] [:success ::value]]
+               (async/<!! (async/go [(async/<! prom) (async/<! prom)]))))))))
 
 (deftest reject-test
   (testing "(reject)"
