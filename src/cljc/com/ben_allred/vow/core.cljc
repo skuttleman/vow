@@ -15,6 +15,17 @@
        (catch #?(:clj Throwable :cljs :default) _))
   val)
 
+(defn ^:private deref!* [[status value]]
+  (cond
+    (and (= :error status) #?(:clj (instance? Throwable value)))
+    (throw value)
+
+    (= :error status)
+    (throw (ex-info "Failed promise" {:value value}))
+
+    :else
+    value))
+
 (def ^:private wrap-success
   (partial conj [:success]))
 
@@ -143,3 +154,10 @@
                         `(then (fn [val#] (~f val# ~@args)))))
                     forms)]
     `(-> ~promise ~@forms')))
+
+(defn deref!
+  ([prom]
+   #?(:clj  (deref!* @prom)
+      :cljs (throw (ex-info "promises cannot be deref'd in ClojureScript" {}))))
+  ([prom timeout-ms timeout-value]
+   (deref!* (deref prom timeout-ms timeout-value))))

@@ -250,3 +250,27 @@
              (-> (v/reject 3)
                  (v/then-> inc (inc) (* 3) v/reject inc)
                  (deref)))))))
+
+(deftest deref!-test
+  (testing "(deref!)"
+    (testing "when the promise resolves"
+      (let [prom (v/resolve 12)]
+        (testing "returns the resolved value"
+          (is (= 12 (v/deref! prom))))))
+
+    (testing "when the promise rejects with a value"
+      (let [prom (v/reject 13)]
+        (testing "throws an exception"
+          (try (v/deref! prom)
+               (is false "test should not get here")
+               (catch Throwable ex
+                 (is (= 13 (:value (ex-data ex)))))))))
+
+    (testing "when the promise rejects with an exception"
+      (let [ex (ex-info "an exception" {:foo :bar})
+            prom (v/create (fn [_ _] (throw ex)))]
+        (testing "throws the exception"
+          (try (v/deref! prom)
+               (is false "test should not get here")
+               (catch Throwable ex'
+                 (is (= ex ex')))))))))
