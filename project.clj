@@ -1,4 +1,4 @@
-(defproject com.ben-allred/vow "0.2.0"
+(defproject com.ben-allred/vow "0.3.0"
   :description "A JS-like promise interface built on top of core.async channels"
   :url "https://github.com/skuttleman/vow"
   :license {:name "Eclipse Public License"
