@@ -251,6 +251,23 @@
                  (v/then-> inc (inc) (* 3) v/reject inc)
                  (deref)))))))
 
+(deftest promise-test
+  (testing "(promise)"
+    (testing "when the body yields a value"
+      (is (= [:success 3]
+             @(v/promise (+ 1 2)))))
+
+    (testing "when the body throws an exception"
+      (let [ex (ex-info "an exception" {:boom? true})]
+        (is (= [:error ex]
+               @(v/promise (throw ex))))))
+
+    (testing "when the body yields a promise"
+      (is (= [:success :foo]
+             @(v/promise (v/resolve :foo))))
+      (is (= [:error :bar]
+             @(v/promise (v/reject :bar)))))))
+
 (deftest deref!-test
   (testing "(deref!)"
     (testing "when the promise resolves"

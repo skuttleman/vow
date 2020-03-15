@@ -1,13 +1,10 @@
 (ns com.ben-allred.vow.core
   "A library to wrap core.async channels with chainable left/right (or success/failure) handling."
-  (:refer-clojure :exclude [next peek resolve])
+  (:refer-clojure :exclude [#?(:clj promise) next peek resolve])
   (:require
     [clojure.core.async :as async]
     [com.ben-allred.vow.impl.chan :as impl.chan]
-    [com.ben-allred.vow.impl.protocol :as proto])
-  #?(:clj
-     (:import
-       (clojure.lang IBlockingDeref IDeref IRecord))))
+    [com.ben-allred.vow.impl.protocol :as proto]))
 
 (defn ^:private try* [cb val]
   (try (when (ifn? cb)
@@ -155,6 +152,21 @@
                         `(then (fn [val#] (~f val# ~@args)))))
                     forms)]
     `(-> ~promise ~@forms')))
+
+(defmacro promise
+  "A macro for creating a promise out of an expression
+
+  (peek (promise (println \"starting\") (/ 17 0)) println)"
+  [& body]
+  `(create (fn [resolve# reject#]
+             (async/go
+               (let [[err# result#] (try [nil ~@body]
+                                         (catch #?(:clj Throwable :default :default) ex#
+                                           [ex# nil]))]
+                 (cond
+                   err# (reject# err#)
+                   (promise? result#) (then result# resolve# reject#)
+                   :else (resolve# result#)))))))
 
 (defn deref!
   ([prom]
