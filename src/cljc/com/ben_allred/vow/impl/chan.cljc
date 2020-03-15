@@ -70,12 +70,6 @@
                                 (async/<!)))))
       (->ChanPromise next-ch)))
 
-  async.protocols/ReadPort
-  (take! [_ fn1-handler]
-    (async.protocols/take! (async/go
-                             (proto/result (async/<! ch)))
-                           fn1-handler))
-
   #?@(:clj [IDeref
             (deref [_]
               (proto/result (async/<!! ch)))
