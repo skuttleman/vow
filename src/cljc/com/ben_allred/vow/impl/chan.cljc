@@ -63,11 +63,11 @@
   (then [_ on-success on-error]
     (let [next-ch (async/promise-chan)]
       (async/go
-        (async/put! next-ch (let [{:keys [status value]} (async/<! (->ch ch))]
-                              (-> (if (= status ::success) on-success on-error)
-                                  (partial value)
-                                  (handle!)
-                                  (async/<!)))))
+        (async/>! next-ch (let [{:keys [status value]} (async/<! (->ch ch))]
+                            (-> (if (= status ::success) on-success on-error)
+                                (partial value)
+                                (handle!)
+                                (async/<!)))))
       (->ChanPromise next-ch)))
 
   async.protocols/ReadPort

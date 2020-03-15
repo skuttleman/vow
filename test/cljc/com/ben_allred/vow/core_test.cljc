@@ -264,7 +264,7 @@
           (try (v/deref! prom)
                (is false "test should not get here")
                (catch Throwable ex
-                 (is (= 13 (:value (ex-data ex)))))))))
+                 (is (= 13 (:error (ex-data ex)))))))))
 
     (testing "when the promise rejects with an exception"
       (let [ex (ex-info "an exception" {:foo :bar})
@@ -273,4 +273,9 @@
           (try (v/deref! prom)
                (is false "test should not get here")
                (catch Throwable ex'
-                 (is (= ex ex')))))))))
+                 (is (= ex ex')))))))
+
+    (testing "when deref'ing with a timeout"
+      (let [v (v/deref! (v/create (fn [_ _])) 10 ::default)]
+        (testing "resolves to the default value"
+          (is (= ::default v)))))))
