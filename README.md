@@ -27,7 +27,29 @@ Here is an example of what can be done with `vow`.
 
 ### Creating a Promise
 
-There are four promise constructors.
+There are six promise constructors.
+
+#### `promise`
+
+A macro for abstracting the creation of a promise. If the body evaluates to a promise, it will be hoisted. Otherwise,
+the return value will be resolved, or the a thrown exception will be rejected.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> (v/promise (+ 1 2))
+    (v/then println))
+;; 3
+
+(-> (v/promise (throw (ex-info "oh, no!" {:mr :bill})))
+    (v/catch ex-data)
+    (v/then println))
+;; {:mr :bill}
+
+(-> (v/promise (v/reject 17))
+    (v/catch println))
+;; 17
+```
 
 #### `resolve`
 
@@ -47,6 +69,28 @@ Creates a promise that rejects a value.
 (require '[com.ben-allred.vow.core :as v])
 
 (v/reject :foo)
+```
+
+### `navtive->prom`
+
+Converts a "native promise" (in Clojure - any IDeref, in Clojurescript - a js/Promise object) into a promise.
+In clojure, takes an optional predicate to determine if the value is a success or not. Defaults to `(constantly true)`.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> #?(:clj  (doto (promise) (deliver 17))
+       :cljs (js/Promise.resolve 17))
+    v/native->prom
+    (v/then inc)
+    (v/then println))
+;; 18
+
+(-> #?(:clj  (v/native->prom (doto (promise) (deliver 17)) even?)
+       :cljs (v/native->prom (js/Promise.reject 17)))
+    (v/then inc)
+    (v/catch println))
+;; 17
 ```
 
 #### `ch->prom`
@@ -81,7 +125,7 @@ logic you can put in a function. Go nuts.
                  (reject ex)))))
 ```
 
-If the callback throws an exception before resolving or rejecting, the promise is automatically rejected
+If the callback throws an exception before resolving, the promise is automatically rejected
 with the exception. The above can be written as:
 
 ```clojure
@@ -163,12 +207,12 @@ The resulting value retains the order or promises passed in (or associated keys 
      (v/then println)) ;; {:foo :bar :baz :quux}
 ```
 
-If any promise fails, the promise will reject with the error.
+If any promise fails, the promise will reject with the first error processed.
 
 ```clojure
 (require '[com.ben-allred.vow.core :as v])
 
-(-> [(v/resolve :foo) (v/reject :bar) (v/resolve :baz)]
+(-> [(v/resolve :foo) (v/reject :bar) (v/resolve :baz) (v/reject :quux)]
     (v/all)
     (v/catch println)) ;; :bar
 ```
@@ -192,11 +236,13 @@ A macro for threading happy path actions via `->`.
 ```
 #### `deref`
 
-In `Clojure`, promises are `deref`able. Sorry `ClojureScript`ers. The status (`:success` or `:error`) is returned along
+In `Clojure`, promises are `deref`able (sorry `ClojureScript`ers). The status (`:success` or `:error`) is returned along
 with the value in a tuple-ish vector.
 
 ```clojure
 (require '[com.ben-allred.vow.core :as v])
+
+;; Clojure only!
 
 @(v/resolve :foo)
 ;; => [:success :foo]
@@ -211,6 +257,29 @@ with the value in a tuple-ish vector.
     deref)
 ;; [:success 4]
 ;; => [:success 3]
+```
+
+#### `deref!`
+
+A helper function that either returns the success value, or throws an exception.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(v/deref! (v/resolve :foo))
+;; => :foo
+
+(let [ex (ex-info "an exception" {:some :data})]
+  (try (v/deref! (v/reject ex))
+       (catch Throwable ex'
+         (= ex ex'))))
+
+;; => true
+
+(try (v/deref! (v/reject :bar))
+     (catch Throwable ex
+       (ex-data ex)))
+;; => {:error :bar}
 ```
 
 ## License
