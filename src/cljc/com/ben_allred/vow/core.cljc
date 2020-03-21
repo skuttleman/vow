@@ -159,14 +159,13 @@
   (peek (promise (println \"starting\") (/ 17 0)) println)"
   [& body]
   `(create (fn [resolve# reject#]
-             (async/go
-               (let [[err# result#] (try [nil ~@body]
-                                         (catch #?(:clj Throwable :default :default) ex#
-                                           [ex# nil]))]
-                 (cond
-                   err# (reject# err#)
-                   (promise? result#) (then result# resolve# reject#)
-                   :else (resolve# result#)))))))
+             (let [[err# result#] (try [nil ~@body]
+                                       (catch ~(if (:ns &env) :default 'Throwable) ex#
+                                         [ex# nil]))]
+               (cond
+                 err# (reject# err#)
+                 (promise? result#) (then result# resolve# reject#)
+                 :else (resolve# result#))))))
 
 (defn deref!
   ([prom]
