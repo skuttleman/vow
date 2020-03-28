@@ -1,7 +1,8 @@
 # vow
 
-A Clojure library that builds a promise abstraction on top of [`clojure.core.async`](https://github.com/clojure/core.async)
-channels. Usage will be familiar to anyone used to javascript [Promises](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Using_promises).
+A Clojure library that builds an asynchronous abstraction on top of [clojure.core.async](https://github.com/clojure/core.async)
+channels. The abstraction is based on the notion of left/right handling (success/error) and usage will be familiar to
+anyone that has used javascript [Promises](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Using_promises).
 
 [![Clojars Project](https://img.shields.io/clojars/v/com.ben-allred/vow.svg)](https://clojars.org/com.ben-allred/vow)
 
@@ -27,26 +28,27 @@ Here is an example of what can be done with `vow`.
 
 ### Creating a Promise
 
-There are six promise constructors.
+There are seven promise constructors.
 
-#### `promise`
+#### `vow`
 
 A macro for abstracting the creation of a promise. If the body evaluates to a promise, it will be hoisted. Otherwise,
-the return value will be resolved, or the a thrown exception will be rejected.
+it will reject if an exception is thrown or resolve to the return value.
 
 ```clojure
 (require '[com.ben-allred.vow.core :as v])
 
-(-> (v/promise (+ 1 2))
+(-> (v/vow (+ 1 2))
     (v/then println))
 ;; 3
 
-(-> (v/promise (throw (ex-info "oh, no!" {:mr :bill})))
+(-> (v/vow (throw (ex-info "oh, no!" {:mr :bill})))
     (v/catch ex-data)
     (v/then println))
 ;; {:mr :bill}
 
-(-> (v/promise (v/reject 17))
+(-> (v/vow (v/reject 17))
+    (v/then inc)
     (v/catch println))
 ;; 17
 ```
@@ -71,7 +73,21 @@ Creates a promise that rejects a value.
 (v/reject :foo)
 ```
 
-### `navtive->prom`
+#### `sleep`
+
+Creates a promise that resolves a value after the specified timeout (in milliseconds).
+The promise make take longer than the specified timeout, but will not happen earlier.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> (v/sleep 100 (.getTime (java.util.Date.)))
+    (v/then-> (- (.getTime (java.util.Date.))))
+    (v/peek println)) ;; [:success -100]
+```
+
+
+#### `navtive->prom`
 
 Converts a "native promise" (in Clojure - any IDeref, in Clojurescript - a js/Promise object) into a promise.
 In clojure, takes an optional predicate to determine if the value is a success or not. Defaults to `(constantly true)`.
@@ -217,23 +233,6 @@ If any promise fails, the promise will reject with the first error processed.
     (v/catch println)) ;; :bar
 ```
 
-#### `then->`
-
-A macro for threading happy path actions via `->`.
-
-```clojure
-(require '[com.ben-allred.vow.core :as v])
-
-(-> (v/resolve 3)
-    (v/then-> (* 2) v/reject)
-    (v/catch dec)
-    (v/then-> (* 3) println)) ;; 15
-
-(-> (v/reject 3)
-    (v/then-> (* 2) v/reject)
-    (v/catch dec)
-    (v/then-> (* 3) println)) ;; 6
-```
 #### `deref`
 
 In `Clojure`, promises are `deref`able (sorry `ClojureScript`ers). The status (`:success` or `:error`) is returned along
@@ -280,6 +279,88 @@ A helper function that either returns the success value, or throws an exception.
      (catch Throwable ex
        (ex-data ex)))
 ;; => {:error :bar}
+```
+
+### Convenience macros
+
+#### `then->`
+
+A macro for threading happy path actions via `->`.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> (v/resolve 3)
+    (v/then-> (* 2) v/reject)
+    (v/catch dec)
+    (v/then-> (* 3) println)) ;; 15
+
+(-> (v/reject 3)
+    (v/then-> (* 2) v/reject)
+    (v/catch dec)
+    (v/then-> (* 3) println)) ;; 6
+```
+
+#### `always`
+
+A macro that executes the body once the promise is finished, without regard for whether it resolved or what its
+value or error was.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> (v/resolve 3)
+    (v/always (throw (ex-info "force failure" {:foo :bar})))
+    (v/catch (comp println ex-data))) ;; {:foo :bar}
+
+(-> (v/reject 3)
+    (v/always (v/resolve 17))
+    (v/then println)) ;; 17
+```
+
+#### `and`
+
+A macro for continuing a chain of promises as long as they resolve. It short circuits like `clojure.core/and`.
+Resolves to the last result, or the first rejection.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> (v/resolve)
+    (v/and (println "before") ;; before
+           (write-to-the-db!)
+           (println "after") ;; after
+           (notify-subscribers!)
+           (+ 1 2))
+    (v/peek println)) ;; [:success 3]
+
+(-> (v/resolve)
+    (v/and (println "this happens") ;; this happens
+           (v/reject :stop)
+           (println "this does not happen"))
+    (v/peek println)) ;; [:error :stop]
+```
+
+#### `or`
+
+A macro for continuing a chain of promises as long as they reject. It short circuits like `clojure.core/or`.
+Resolves to the last error, or the first resolution.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> (v/reject)
+    (v/or (v/reject (println "before")) ;; before
+          (throw (ex-info "bad" {}))
+          (v/reject (println "after")) ;; after
+          (v/reject :final))
+    (v/peek println)) ;; [:error :final]
+
+(-> (v/reject)
+    (v/or (v/reject (println "this happens")) ;; this happens
+          (v/resolve :done)
+          (v/reject (println "this does not happen")))
+    (v/peek println)) ;; [:success :done]
 ```
 
 ## License

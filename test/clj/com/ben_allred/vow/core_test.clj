@@ -2,7 +2,9 @@
   (:require
     [clojure.core.async :as async]
     [clojure.test :refer [are deftest is testing]]
-    [com.ben-allred.vow.core :as v]))
+    [com.ben-allred.vow.core :as v])
+  (:import
+    (java.util Date)))
 
 (deftest resolve-test
   (testing "(resolve)"
@@ -246,22 +248,22 @@
                  (v/then-> inc (inc) (* 3) v/reject inc)
                  (deref)))))))
 
-(deftest promise-test
-  (testing "(promise)"
+(deftest vow-test
+  (testing "(vow)"
     (testing "when the body yields a value"
       (is (= [:success 3]
-             @(v/promise (+ 1 2)))))
+             @(v/vow (+ 1 2)))))
 
     (testing "when the body throws an exception"
       (let [ex (ex-info "an exception" {:boom? true})]
         (is (= [:error ex]
-               @(v/promise (throw ex))))))
+               @(v/vow (throw ex))))))
 
     (testing "when the body yields a promise"
       (is (= [:success :foo]
-             @(v/promise (v/resolve :foo))))
+             @(v/vow (v/resolve :foo))))
       (is (= [:error :bar]
-             @(v/promise (v/reject :bar)))))))
+             @(v/vow (v/reject :bar)))))))
 
 (deftest deref!-test
   (testing "(deref!)"
@@ -291,3 +293,101 @@
       (let [v (v/deref! (v/create (fn [_ _])) 10 ::default)]
         (testing "resolves to the default value"
           (is (= ::default v)))))))
+
+(deftest always-test
+  (testing "(always)"
+    (testing "when the promise is pending"
+      (let [x (atom 0)]
+        (v/always (v/ch->prom (async/promise-chan))
+          (swap! x inc)
+          13)
+        (testing "does not execute the body"
+          (is (zero? @x)))))
+
+    (testing "when the promise resolves"
+      (let [x (atom 0)
+            result (v/always (v/resolve :something)
+                     (swap! x inc)
+                     (v/reject 17)
+                     13)]
+        (testing "returns the last expression"
+          (is (= [:success 13] @result)))
+
+        (testing "evaluates all expressions"
+          (is (= 1 @x)))))
+
+    (testing "when the promise rejects"
+      (let [x (atom 0)
+            result (v/always (v/reject :something)
+                     (swap! x inc)
+                     (v/reject 17)
+                     13)]
+        (testing "returns the last expression"
+          (is (= [:success 13] @result)))
+
+        (testing "evaluates all expressions"
+          (is (= 1 @x)))))))
+
+(deftest and-test
+  (testing "(and)"
+    (testing "when all promises resolve"
+      (let [result (v/and (v/resolve)
+                     (+ 1 2)
+                     (v/resolve 17)
+                     (v/resolve :hooray!))]
+        (testing "returns the last result"
+          (is (= [:success :hooray!] @result)))))
+
+    (testing "when one promise rejects"
+      (let [result (v/and (v/resolve)
+                     (+ 1 2)
+                     (v/reject 17)
+                     (v/resolve :hooray!))]
+        (testing "returns the rejection"
+          (is (= [:error 17] @result)))))
+
+    (testing "when the initial promise rejects"
+      (let [result (v/and (v/reject :bad)
+                          (+ 1 2)
+                          17
+                          :hooray!)]
+        (testing "returns the rejection"
+          (is (= [:error :bad] @result)))))))
+
+(deftest or-test
+  (testing "(or)"
+    (testing "when all promises reject"
+      (let [expected (ex-info "bad" {:foo :bar})
+            result (v/or (v/reject :foo)
+                     (v/reject)
+                     (throw expected))]
+        (testing "returns the last rejection"
+          (is (= [:error expected] @result)))))
+
+    (testing "when one promise resolves"
+      (let [result (v/or (v/reject)
+                     (v/reject 17)
+                     (+ 1 2)
+                     (v/reject :boo!))]
+        (testing "returns the rejection"
+          (is (= [:success 3] @result)))))
+
+    (testing "when the initial promise resolves"
+      (let [result (v/or (v/resolve :good)
+                         (v/reject 17)
+                         (throw (ex-info "bad" {}))
+                         (v/reject :boo!))]
+        (testing "returns the resolved value"
+          (is (= [:success :good] @result)))))))
+
+(deftest sleep-test
+  (testing "(sleep)"
+    (let [now (.getTime (Date.))
+          result @(v/sleep 100 :result)
+          after (.getTime (Date.))]
+
+      (testing "waits the configured amount"
+        (is (>= (- after now) 100)))
+
+      (testing "resolves the value"
+        (is (= [:success :result] result))))))
