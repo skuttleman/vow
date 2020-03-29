@@ -232,7 +232,47 @@
       (is (= [:error :boom!]
              (-> [(v/resolve 1) (v/reject :boom!) (v/resolve 3)]
                  (v/all)
-                 (deref)))))))
+                 (deref)))))
+
+    (testing "fails fast"
+      (let [before (.getTime (Date.))
+            _ (-> [(v/sleep :foo 100) (v/reject :boom!)]
+                  v/all
+                  deref)
+            after (.getTime (Date.))]
+        (is (< (- after before) 100))))))
+
+(deftest any-test
+  (testing "(any)"
+    (testing "resolves with a single success"
+      (is (= [:success :b]
+             (-> [(v/reject :a) (v/resolve :b) (v/reject :c)]
+                 v/any
+                 deref))))
+
+    (testing "collects error values"
+      (is (= [:error [:a :b :c]]
+             (-> [(v/reject :a)
+                  (v/sleep (v/reject :b) 10)
+                  (v/create (fn [_ reject] (reject :c)))]
+                 v/any
+                 deref))))
+
+    (testing "works on maps"
+      (is (= [:error {:a 1 :b 2 :c 3}]
+             (-> {:a (v/reject 1)
+                  :b (v/sleep (v/reject 2) 10)
+                  :c (v/create (fn [_ reject] (reject 3)))}
+                 v/any
+                 deref))))
+
+    (testing "succeeds fast"
+      (let [before (.getTime (Date.))
+            _ (-> [(v/sleep :foo 100) (v/resolve :bar)]
+                  v/any
+                  deref)
+            after (.getTime (Date.))]
+        (is (< (- after before) 100))))))
 
 (deftest then->test
   (testing "(then->)"
@@ -383,7 +423,7 @@
 (deftest sleep-test
   (testing "(sleep)"
     (let [now (.getTime (Date.))
-          result @(v/sleep 100 :result)
+          result @(v/sleep :result 100)
           after (.getTime (Date.))]
 
       (testing "waits the configured amount"
@@ -391,3 +431,14 @@
 
       (testing "resolves the value"
         (is (= [:success :result] result))))))
+
+(deftest first-test
+  (testing "(first)"
+    (testing "resolves to the first result"
+      (are [promises expected] (= expected @(v/first promises))
+        [(v/sleep :foo 20) (v/sleep :bar 40) (v/sleep :baz 60)] [:success :foo]
+        [(v/sleep :foo 60) (v/sleep :bar 40) (v/sleep :baz 20)] [:success :baz]
+        [(v/sleep :foo 20) (v/sleep :bar 40) (v/reject :baz)] [:error :baz]
+        [(v/sleep :foo 60) (v/sleep :bar 40) (v/sleep (v/reject :baz) 20)] [:error :baz]
+        [(v/sleep :foo 40) (v/sleep :bar 20) (v/sleep (v/reject :baz) 60)] [:success :bar]
+        [(v/sleep (v/reject :foo) 20) (v/sleep :bar 40) (v/sleep :baz 60)] [:error :foo]))))

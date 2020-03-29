@@ -1,6 +1,6 @@
 (ns com.ben-allred.vow.core
   "A library to wrap core.async channels with chainable left/right (or success/failure) handling."
-  (:refer-clojure :exclude [and next or peek resolve])
+  (:refer-clojure :exclude [and first next or peek resolve])
   (:require
     [clojure.core.async :as async]
     [com.ben-allred.vow.impl.chan :as impl.chan]
@@ -120,8 +120,8 @@
 (defn sleep
   "Creates a promise that resolves after the specified amount of time (in milliseconds)."
   ([ms]
-   (sleep ms nil))
-  ([ms value]
+   (sleep nil ms))
+  ([value ms]
    (ch->prom (async/go
                (async/<! (async/timeout ms))
                value))))
@@ -149,19 +149,54 @@
 
 (defn all
   "Takes a sequence of promises and returns a promise that resolves when all promises resolve, or rejects if any
-  promise rejects. `promises` can be a map or sequential collection
+  promise rejects. `promises` can be a map or sequential collection.
 
   (-> {:foo (resolve :bar) :baz (resolve :quux)}
       (all)
       (then println)) ;; {:foo :bar :baz :quux}"
   [promises]
-  (let [m? (map? promises)]
-    (reduce (fn [result-promise [k promise]]
-              (then result-promise (fn [results]
-                                     (then promise (partial assoc results k)))))
-            (resolve (if m? {} []))
-            (cond->> promises
-                     (not m?) (map-indexed vector)))))
+  (create (fn [resolve' reject]
+            (let [m? (map? promises)]
+              (-> promises
+                  (cond->> (not m?) (map-indexed vector))
+                  (->> (map (fn [[k promise]]
+                              [k (then promise identity reject)]))
+                       (reduce (fn [chain [k promise]]
+                                 (then chain #(then promise
+                                                    (partial assoc % k))))
+                               (resolve (if m? {} []))))
+                  (then resolve'))))))
+
+(defn any
+  "Takes a sequence of promises and returns a promise that resolves to the first success
+  or rejects with all errors if everything fails. `promises` can be a map or sequential collection.
+
+  (-> {:foo (resolve :bar) :baz (sleep :quux 100)}
+      any
+      (then println)) ;; :bar"
+  [promises]
+  (create (fn [resolve reject']
+            (let [m? (map? promises)]
+              (-> promises
+                  (cond->> (not m?) (map-indexed vector))
+                  (->> (map (fn [[k promise]]
+                              [k (then promise resolve)]))
+                       (reduce (fn [chain [k promise]]
+                                 (catch chain #(catch promise
+                                                      (comp reject (partial assoc % k)))))
+                               (reject (if m? {} []))))
+                  (catch reject'))))))
+
+(defn first
+  "Takes a sequence of promises and resolves or rejects whichever finishes first.
+
+  (-> [(resolve :foo) (sleep :bar 10)]
+      first
+      (v/peek println)) ;; [:success :foo]"
+  [promises]
+  (create (fn [resolve reject]
+            (doseq [promise promises]
+              (then promise resolve reject)))))
 
 (defmacro then->
   "A macro for handing the success path thread via `->`.

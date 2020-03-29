@@ -81,11 +81,17 @@ The promise make take longer than the specified timeout, but will not happen ear
 ```clojure
 (require '[com.ben-allred.vow.core :as v])
 
-(-> (v/sleep 100 (.getTime (java.util.Date.)))
+(-> (v/sleep (.getTime (java.util.Date.)) 100)
     (v/then-> (- (.getTime (java.util.Date.))))
     (v/peek println)) ;; [:success -100]
-```
 
+(-> (v/resolve 17)
+    (v/then-> (v/sleep 1000))
+    (v/then println)) ;; 17
+
+(-> (v/sleep (v/reject :bad) 100)
+    (v/catch println)) ;; :bad
+```
 
 #### `navtive->prom`
 
@@ -192,10 +198,10 @@ no effect on the value in the promise chain.
 (require '[com.ben-allred.vow.core :as v])
 
 (-> (v/resolve 3)
-    (v/peek handler)  ;; called with [:success 3]
+    (v/peek handler)  ;; called with: [:success 3]
     (v/then v/reject)
-    (v/peek handler)  ;; called with [:error 3]
-    (v/peek on-success on-error) ;; separate handlers for success/error (value is not wrapped in a tuple)
+    (v/peek handler)  ;; called with: [:error 3]
+    (v/peek on-success on-error) ;; separate handlers for success/error on-error is called with: 3
     (v/peek on-success nil) ;; only handle success
     (v/peek nil on-error)) ;; only handle error
 ```
@@ -231,6 +237,35 @@ If any promise fails, the promise will reject with the first error processed.
 (-> [(v/resolve :foo) (v/reject :bar) (v/resolve :baz) (v/reject :quux)]
     (v/all)
     (v/catch println)) ;; :bar
+```
+
+### `any`
+
+Takes a collection of promises and returns the first success or a vector of errors (or map if passed a map) if they all fail.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> [(v/sleep :foo 50) (v/reject :bar) (v/sleep :baz 100)]
+    v/any
+    (v/peek println)) ;; [:success :foo]
+
+(-> {:foo (v/reject :bar) :baz (v/reject :quux)}
+    v/any
+    (v/peek println)) ;; [:error {:foo :bar :baz :quux}]
+```
+
+#### `first`
+
+Takes a collection of promises and resolves or rejects whichever finishes first.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(-> [(v/vow (long-running-process))
+     (v/sleep (v/reject :timed-out) 5000)]
+    v/first
+    (v/then handle-finished handle-error-or-timeout))
 ```
 
 #### `deref`
@@ -320,8 +355,8 @@ value or error was.
 
 #### `and`
 
-A macro for continuing a chain of promises as long as they resolve. It short circuits like `clojure.core/and`.
-Resolves to the last result, or the first rejection.
+A macro for continuing a chain of promises as long as they resolve. Promises happen in order (if at all).
+It short circuits like `clojure.core/and`. Resolves to the last result, or the first rejection.
 
 ```clojure
 (require '[com.ben-allred.vow.core :as v])
@@ -343,8 +378,8 @@ Resolves to the last result, or the first rejection.
 
 #### `or`
 
-A macro for continuing a chain of promises as long as they reject. It short circuits like `clojure.core/or`.
-Resolves to the last error, or the first resolution.
+A macro for continuing a chain of promises as long as they reject. Promises happen in order (if at all).
+It short circuits like `clojure.core/or`. Resolves to the last error, or the first resolution.
 
 ```clojure
 (require '[com.ben-allred.vow.core :as v])
