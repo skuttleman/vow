@@ -308,19 +308,18 @@
 
             :else
             (throw (ex-info "invalid attempt form" {:failed-on form :forms forms}))))
-        f (if finale
+        f (when finale
             `(fn [result#]
-               (and (resolve) ~@finale result#))
-            identity)]
-    (-> (reduce (fn [promise [tag frm & catch-body]]
-                  `(com.ben-allred.vow.core/catch ~promise
-                                                  (fn [value#]
-                                                    (if (if-let [t# ~tag]
-                                                          (clojure.core/or (instance? t# value#)
-                                                                           (= t# (type value#)))
-                                                          true)
-                                                      (let [~frm value#] (and (resolve) ~@catch-body))
-                                                      (reject value#)))))
-                `(and (resolve) ~@body)
-                handlers)
-        (as-> promise `(then ~promise ~f (comp reject ~f))))))
+               (and (resolve) ~@finale result#)))]
+    (cond-> (reduce (fn [promise [tag frm & catch-body]]
+                      `(com.ben-allred.vow.core/catch ~promise
+                                                      (fn [value#]
+                                                        (if (if-let [t# ~tag]
+                                                              (clojure.core/or (instance? t# value#)
+                                                                               (= t# (type value#)))
+                                                              true)
+                                                          (let [~frm value#] (and (resolve) ~@catch-body))
+                                                          (reject value#)))))
+                    `(and (resolve) ~@body)
+                    handlers)
+      f (as-> promise `(then ~promise ~f (comp reject ~f))))))
