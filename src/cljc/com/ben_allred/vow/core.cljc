@@ -1,16 +1,17 @@
 (ns com.ben-allred.vow.core
   "A library to wrap core.async channels with chainable left/right (or success/failure) handling."
-  (:refer-clojure :exclude [and first next or peek resolve])
+  (:refer-clojure :exclude [and await first or peek resolve])
   (:require
     [clojure.core.async :as async]
     [com.ben-allred.vow.impl.chan :as impl.chan]
     [com.ben-allred.vow.impl.protocol :as proto]))
 
-(defn ^:private try* [cb val]
-  (try (when (ifn? cb)
-         (cb val))
-       (catch #?(:clj Throwable :cljs :default) _))
-  val)
+(defn ^:private add-meta [xs]
+  #?(:cljs (js/console.log (pr-str (meta (clojure.core/first xs)))))
+  (cons (:tag (meta (clojure.core/first xs))) xs))
+
+(defn ^:private invocation? [x]
+  (clojure.core/and (sequential? x) (not (vector? x))))
 
 (defn ^:private deref!* [[status value]]
   #?(:clj
@@ -62,6 +63,13 @@
    (reject nil))
   ([err]
    (create (fn [_ reject] (reject err)))))
+
+(defn ^:private try* [cb val]
+  (try (if (ifn? cb)
+         (resolve (cb val))
+         (resolve))
+       (catch #?(:clj Throwable :cljs :default) _
+         (resolve))))
 
 (defn then
   "Handles the success path (or success and failure path) of a promise. If the handler fn returns
@@ -144,8 +152,10 @@
          (comp cb wrap-error)))
   ([promise on-success on-error]
    (proto/then promise
-               (comp resolve (partial try* on-success))
-               (comp reject (partial try* on-error)))))
+               (fn [result]
+                 (then (try* on-success result) (constantly result)))
+               (fn [result]
+                 (then (try* on-error result) (constantly (reject result)))))))
 
 (defn all
   "Takes a sequence of promises and returns a promise that resolves when all promises resolve, or rejects if any
@@ -206,7 +216,7 @@
       (peek println nil)) ;; (7 7 7 7 7 7 7 7)"
   [promise & forms]
   (let [forms' (map (fn [form]
-                      (let [[f & args] (if (list? form) form [form])]
+                      (let [[f & args] (if (invocation? form) form [form])]
                         `(then (fn [val#] (~f val# ~@args)))))
                     forms)]
     `(-> ~promise ~@forms')))
@@ -246,3 +256,71 @@
                       `(com.ben-allred.vow.core/catch (fn [_#] ~form)))
                     forms)]
     `(-> ~promise ~@forms')))
+
+(defmacro await
+  "A lexical binding macro that coerces it's expressions into promises and binds their results accordingly.
+  Any thrown exception or attempt to bind to a rejected promise results in a rejected promise, otherwise it
+  resolves the body with the expressions bound.
+
+  (v/await [foo (v/sleep :foo 100)
+            _ (println \"this will print after 100 ms\")
+            bar (v/or (v/reject :error) (v/resolve :baz))]
+    [foo bar]) ;; [:success [:foo :bar]]"
+  [bindings & body]
+  (assert (clojure.core/and (vector? bindings) (even? (count bindings))) "bindings must be a vector with an even number of forms")
+  (if (empty? bindings)
+    `(and (resolve) ~@body)
+    (let [[[expr frm] & more] (partition 2 (reverse bindings))]
+      (reduce (fn [prom [expr frm]]
+                `(then (vow ~expr) (fn [~frm] ~prom)))
+              `(then (vow ~expr) (fn [~frm] (and (resolve) ~@body)))
+              more))))
+
+(defmacro attempt
+  "A macro to imitate try/catch/finally behavior with promises.
+
+  (begin (reject \"some error\")
+    (catch ^Number num
+      [:number num])
+    (catch any
+      [:any any])
+    (catch ^String str
+      [:string str])
+    (finally
+      (println \"finally\"))) ;; [:success [:any \"some error\"]]"
+  [& forms]
+  (let [[body handlers finale]
+        (loop [body [] handlers [] [form :as forms'] forms]
+          (cond
+            (empty? forms')
+            [body handlers]
+
+            (clojure.core/and (invocation? form) (= 'catch (clojure.core/first form)))
+            (recur body (conj handlers (add-meta (rest form))) (rest forms'))
+
+            (clojure.core/and (invocation? form) (= 'finally (clojure.core/first form)) (empty? (rest forms')))
+            [body handlers (rest form)]
+
+            (clojure.core/and (empty? handlers)
+                              (clojure.core/or (not (invocation? form))
+                                               (not (#{'catch 'finally} (clojure.core/first form)))))
+            (recur (conj body form) handlers (rest forms'))
+
+            :else
+            (throw (ex-info "invalid attempt form" {:failed-on form :forms forms}))))
+        f (if finale
+            `(fn [result#]
+               (and (resolve) ~@finale result#))
+            identity)]
+    (-> (reduce (fn [promise [tag frm & catch-body]]
+                  `(com.ben-allred.vow.core/catch ~promise
+                                                  (fn [value#]
+                                                    (if (if-let [t# ~tag]
+                                                          (clojure.core/or (instance? t# value#)
+                                                                           (= t# (type value#)))
+                                                          true)
+                                                      (let [~frm value#] (and (resolve) ~@catch-body))
+                                                      (reject value#)))))
+                `(and (resolve) ~@body)
+                handlers)
+        (as-> promise `(then ~promise ~f (comp reject ~f))))))

@@ -8,7 +8,7 @@ anyone that has used javascript [Promises](https://developer.mozilla.org/en-US/d
 
 ## Usage
 
-Here is an example of what can be done with `vow`.
+Here are some examples of what can be done with `vow`.
 
 ```clojure
 (require '[com.ben-allred.vow.core :as v])
@@ -22,8 +22,23 @@ Here is an example of what can be done with `vow`.
     (v/catch inc) ;; increments the now rejected value
     (v/peek println) ;; prints the value without effecting what is in the promise chain
     (v/then (comp do-something inc))) ;; calls do-something with `6`
-;; [:success 5]
 ;; => Promise{...}
+;; [:success 5]
+
+(v/peek (v/attempt (v/await [a 7
+                             b (v/resolve (- a 4))
+                             [c d] (v/all [(v/resolve 1) (v/resolve (inc b))])]
+                     (v/sleep 100)
+                     (v/reject [a b c d]))
+                   (catch ^clojure.lang.Keyword k
+                      [:keyword k])
+                   (catch ^clojure.lang.APersistentVector v
+                      (conj v :handled))
+                   (finally (println "finally!")))
+        println)
+;; => Promise{...}
+;; finally!
+;; [:success [7 3 1 4 :handled]]
 ```
 
 ### Creating a Promise
@@ -86,10 +101,10 @@ The promise make take longer than the specified timeout, but will not happen ear
     (v/peek println)) ;; [:success -100]
 
 (-> (v/resolve 17)
-    (v/then-> (v/sleep 1000))
-    (v/then println)) ;; 17
+    (v/then-> (v/sleep 1000) ;; takes value as its first argument to be composable with then->
+              println)) ;; 17
 
-(-> (v/sleep (v/reject :bad) 100)
+(-> (v/sleep (v/reject :bad) 100) ;; if value is a promise, it will be hoisted
     (v/catch println)) ;; :bad
 ```
 
@@ -334,6 +349,70 @@ A macro for threading happy path actions via `->`.
     (v/then-> (* 2) v/reject)
     (v/catch dec)
     (v/then-> (* 3) println)) ;; 6
+```
+
+#### `attempt`
+
+A macro that uses try/catch semantics to express promise handling.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(v/peek (v/attempt (throw (ex-info "foo" {:bar :baz}))
+                   (println "I never happen")
+                   (catch ^clojure.lang.Keyword k ;; optional runtime type-based dispatch via metadata
+                     [:keyword k])
+                   (catch ^clojure.lang.IExceptionInfo ex
+                     [:caught (ex-data ex)]) ;; exception is caught here
+                   (catch any ;; would handle any rejection if it hadn't already been caught
+                     (println "re-throwing")
+                     (v/reject any))
+                   (finally
+                     (println "I always happen")))
+        println)
+;; I always happen
+;; [:success [:caught {:bar :baz}]]
+```
+
+#### `await`
+
+A macro for expressing promise handling as lexical bindings.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+(v/peek (v/await [a (v/resolve 7)
+                  {:keys [b c]} (v/sleep {:b 4 :c 17} 100)
+                  d (+ a b c)]
+          (v/sleep 100)
+          {:double (* d 2)
+           :half   (/ d 2)})
+        println)
+;; [:success {:double 56 :half 14}]
+
+(v/peek (v/await [a (+ 1 2)
+                  _ (v/reject [:bad a])]
+          [:good a])
+        println)
+;; [:error [:bad 3]]
+```
+
+Only top-level promises in binding expression and the body of await will be waited upon. The following *does not work*.
+
+```clojure
+(require '[com.ben-allred.vow.core :as v])
+
+;; does NOT evaluate nested promises before attempting to add them
+(v/await [a (v/resolve 7)]
+  (println (v/sleep :foo 100)) ;; BAD -> prints the promise instead of awaiting it
+  (+ a (v/resolve 9) (v/resolve 2))) ;; BAD -> attempts to add promises
+
+;; use explicit bindings instead
+(v/await [a (v/resolve 7)
+          [b c] (v/all [(v/resolve 9) (v/resolve 2)])
+          foo (v/sleep :foo 100)]
+  (println foo)
+  (+ a b c))
 ```
 
 #### `always`

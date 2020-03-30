@@ -4,6 +4,7 @@
     [clojure.test :refer [are deftest is testing]]
     [com.ben-allred.vow.core :as v])
   (:import
+    (clojure.lang Keyword)
     (java.util Date)))
 
 (deftest resolve-test
@@ -84,7 +85,7 @@
     (testing "when the promise is never resolved or rejected"
       (let [prom (v/create (fn [_ _]))]
         (testing "can be deref'ed with a default value"
-          (is (= :foo (deref prom 100 :foo))))))
+          (is (= :foo (deref prom 20 :foo))))))
 
     (testing "when the callback throws an exception"
       (let [exception (ex-info "exception" {:foo :bar})
@@ -208,7 +209,12 @@
                                 (v/resolve)
                                 (v/peek #(throw (ex-info "bad" {:x %})))
                                 (v/then inc)
-                                (deref))))))))
+                                (deref))))
+        (is (= [:success 4] (-> 3
+                                v/resolve
+                                (v/peek nil nil)
+                                (v/then inc)
+                                deref)))))))
 
 (deftest all-test
   (testing "(all)"
@@ -236,11 +242,11 @@
 
     (testing "fails fast"
       (let [before (.getTime (Date.))
-            _ (-> [(v/sleep :foo 100) (v/reject :boom!)]
+            _ (-> [(v/sleep :foo 20) (v/reject :boom!)]
                   v/all
                   deref)
             after (.getTime (Date.))]
-        (is (< (- after before) 100))))))
+        (is (< (- after before) 20))))))
 
 (deftest any-test
   (testing "(any)"
@@ -268,11 +274,11 @@
 
     (testing "succeeds fast"
       (let [before (.getTime (Date.))
-            _ (-> [(v/sleep :foo 100) (v/resolve :bar)]
+            _ (-> [(v/sleep :foo 20) (v/resolve :bar)]
                   v/any
                   deref)
             after (.getTime (Date.))]
-        (is (< (- after before) 100))))))
+        (is (< (- after before) 20))))))
 
 (deftest then->test
   (testing "(then->)"
@@ -372,17 +378,17 @@
   (testing "(and)"
     (testing "when all promises resolve"
       (let [result (v/and (v/resolve)
-                     (+ 1 2)
-                     (v/resolve 17)
-                     (v/resolve :hooray!))]
+                          (+ 1 2)
+                          (v/resolve 17)
+                          (v/resolve :hooray!))]
         (testing "returns the last result"
           (is (= [:success :hooray!] @result)))))
 
     (testing "when one promise rejects"
       (let [result (v/and (v/resolve)
-                     (+ 1 2)
-                     (v/reject 17)
-                     (v/resolve :hooray!))]
+                          (+ 1 2)
+                          (v/reject 17)
+                          (v/resolve :hooray!))]
         (testing "returns the rejection"
           (is (= [:error 17] @result)))))
 
@@ -399,16 +405,16 @@
     (testing "when all promises reject"
       (let [expected (ex-info "bad" {:foo :bar})
             result (v/or (v/reject :foo)
-                     (v/reject)
-                     (throw expected))]
+                         (v/reject)
+                         (throw expected))]
         (testing "returns the last rejection"
           (is (= [:error expected] @result)))))
 
     (testing "when one promise resolves"
       (let [result (v/or (v/reject)
-                     (v/reject 17)
-                     (+ 1 2)
-                     (v/reject :boo!))]
+                         (v/reject 17)
+                         (+ 1 2)
+                         (v/reject :boo!))]
         (testing "returns the rejection"
           (is (= [:success 3] @result)))))
 
@@ -423,11 +429,11 @@
 (deftest sleep-test
   (testing "(sleep)"
     (let [now (.getTime (Date.))
-          result @(v/sleep :result 100)
+          result @(v/sleep :result 20)
           after (.getTime (Date.))]
 
       (testing "waits the configured amount"
-        (is (>= (- after now) 100)))
+        (is (>= (- after now) 20)))
 
       (testing "resolves the value"
         (is (= [:success :result] result))))))
@@ -442,3 +448,121 @@
         [(v/sleep :foo 60) (v/sleep :bar 40) (v/sleep (v/reject :baz) 20)] [:error :baz]
         [(v/sleep :foo 40) (v/sleep :bar 20) (v/sleep (v/reject :baz) 60)] [:success :bar]
         [(v/sleep (v/reject :foo) 20) (v/sleep :bar 40) (v/sleep :baz 60)] [:error :foo]))))
+
+(deftest await-test
+  (testing "(await)"
+    (testing "executes expectedly"
+      (let [ex (ex-info "an exception" {:some :info})]
+        (are [expected promise] (= expected @promise)
+          [:success nil] (v/await [])
+          [:success [1 2 3]] (v/await [a 1
+                                       b 2
+                                       c 3]
+                               [a b c])
+          [:success [:x :y :z]] (v/await [x (v/resolve :x)
+                                          y (v/resolve :y)
+                                          z (v/resolve :z)]
+                                  [x y z])
+          [:error :middle] (v/await []
+                             (v/resolve :beginning)
+                             (v/reject :middle)
+                             (v/resolve :end))
+          [:error ex] (v/await [_ (v/resolve)]
+                        (throw ex))
+          [:error ex] (v/await [x (v/resolve :x)
+                                y (throw ex)]
+                        [x y])
+          [:error :reject] (v/await [x (v/reject :reject)]
+                             (throw ex)
+                             x))))
+
+    (testing "evaluates forms lexically"
+      (let [before (.getTime (Date.))
+            result @(v/await [x (v/resolve 7)
+                              [y z] (v/all [(v/resolve (inc x))
+                                            (v/sleep :z 20)])]
+                      (+ 1 2)
+                      (v/sleep 20)
+                      (v/await [a (v/sleep [z y] 20)]
+                        {:a a}))
+            after (.getTime (Date.))]
+        (is (= [:success {:a [:z 8]}] result))
+        (is (>= (- after before) 60))))))
+
+(deftest attempt-test
+  (testing "(attempt)"
+    (testing "executes expectedly"
+      (are [expected promise] (= expected @promise)
+        [:success 3] (v/attempt (+ 1 2)
+                                (catch _
+                                  17))
+        [:success 17] (v/attempt (+ 1 2)
+                                 (+ 4 5)
+                                 17)
+        [:error :ex] (v/attempt (+ 1 2)
+                                (v/reject :ex)
+                                (+ 7 8))
+        [:success :any] (v/attempt (+ 1 2)
+                                   (throw (ex-info "" {}))
+                                   (catch any
+                                     :any))
+        [:success [:number 17]] (v/attempt (v/reject 17)
+                                           (catch ^String s
+                                             [:string s])
+                                           (catch ^Number n
+                                             [:number n])
+                                           (catch ^Keyword k
+                                             [:keyword k]))
+        [:success [:any 3]] (v/attempt (v/reject 3)
+                                       (catch any
+                                         [:any any])
+                                       (catch ^Number n
+                                         [:number n]))
+        [:error :keyword] (v/attempt (v/reject :keyword)
+                                     (catch ^Number n
+                                       [:number n])
+                                     (catch ^String s
+                                       [:string s]))))
+
+    (testing "when there is a finally clause"
+      (let [side-effect (atom 4)
+            before (.getTime (Date.))
+            result @(v/attempt (v/sleep 20)
+                               (* 2 3)
+                               (finally (v/sleep 20)
+                                      (swap! side-effect inc)))
+            after (.getTime (Date.))]
+        (testing "handles finally"
+          (is (= 5 @side-effect))
+          (is (= [:success 6] result))
+          (is (>= (- after before) 40))))
+
+      (testing "and when the finally clause errors"
+        (let [side-effect (atom 4)
+              before (.getTime (Date.))
+              result @(v/attempt (v/sleep 20)
+                                 (* 2 3)
+                                 (finally (v/sleep 20)
+                                        (v/reject :final-bomb!)
+                                        (swap! side-effect inc)))
+              after (.getTime (Date.))]
+          (testing "rejects the promise"
+            (is (= 4 @side-effect))
+            (is (= [:error :final-bomb!] result))
+            (is (>= (- after before) 40)))))
+
+      (testing "and when the promise is caught"
+        (let [side-effect (atom 4)
+              before (.getTime (Date.))
+              result @(v/attempt (v/reject "oh no!")
+                                 (catch ^Number n
+                                   [:number n])
+                                 (catch ^String _
+                                   :recovered)
+                                 (finally (v/sleep 20)
+                                        (swap! side-effect inc)))
+              after (.getTime (Date.))]
+          (testing "handles finally"
+            (is (= 5 @side-effect))
+            (is (= [:success :recovered] result))
+            (is (>= (- after before) 20))))))))
