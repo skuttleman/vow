@@ -477,6 +477,23 @@ It short circuits like `clojure.core/or`. Resolves to the last error, or the fir
     (v/peek println)) ;; [:success :done]
 ```
 
+## Development
+
+### Run Tests
+
+The tests are run in Clojure and Clojurescript (NodeJS)
+
+```bash
+$ lein test && lein doo once
+```
+
+### Deploy
+
+Update the version in `project.clj` and deploy to clojars.
+
+```bash
+$ lein deploy clojars
+```
 ## License
 
 This program and the accompanying materials are made available under the

@@ -236,7 +236,7 @@
 
   (always my-promise (println \"I always happen\") 17)"
   [promise & body]
-  `(letfn [(f# [_#] ~@body)]
+  `(let [f# (fn [_#] ~@body)]
      (then ~promise f# f#)))
 
 (defmacro and
